@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+// Assets/Scripts/Controllers/CreatureBuilder.cs
+using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -59,13 +60,17 @@ namespace Keiwando.Evolution {
 				this.joints.Add(Joint.CreateFromData(jointData));
 			}
 
-			foreach (var boneData in design.Bones) {
-				CreateBoneFromData(boneData);	
-			}
+            foreach (var boneData in design.Bones) {
+                CreateBoneFromData(boneData);    
+            }
 
-			foreach (var muscleData in design.Muscles) {
-				CreateMuscleFromData(muscleData);
-			}
+            foreach (var muscleData in design.Muscles) {
+                if (muscleData.isAttachedToJoints) {
+                    CreateMuscleFromData(muscleData, true); // For joint-to-joint muscles
+                } else {
+                    CreateMuscleFromData(muscleData); // For bone-to-bone muscles
+                }
+            }
 
 			// Update the idCounter
 			int maxJointID = design.Joints.Count > 0 ? design.Joints.Max(data => data.id) : 0;
@@ -168,8 +173,8 @@ namespace Keiwando.Evolution {
 
 				if (hoveringJoint != null && !hoveringJoint.Equals(currentBone.startingJoint)) {
 					endPoint = hoveringJoint.center;
-					currentBone.endingJoint = hoveringJoint;
 					var oldData = currentBone.BoneData;
+                    currentBone.endingJoint = hoveringJoint;
 					var newData = new BoneData(oldData.id, oldData.startJointID, hoveringJoint.JointData.id, oldData.weight, oldData.isWing, oldData.inverted);
 					currentBone.BoneData = newData;
 				} 
@@ -235,63 +240,65 @@ namespace Keiwando.Evolution {
 		#region Muscle Placement
 
 		/// <summary>
-		/// Attempts to place a muscle starting at the specified position.
-		/// </summary>
-		public void TryStartingMuscle(Bone bone) {
-
-			if (bone != null) {
-				CreateMuscleFromBone(bone);
-				var startPos = bone.Center;
-				currentMuscle.SetLinePoints(startPos, startPos);
-			}
-		}
+        /// Attempts to place a muscle starting at the specified body component (Bone or Joint).
+        /// </summary>
+        public void TryStartingMuscle(BodyComponent component) {
+            if (component != null) {
+                CreateMuscleFromComponent(component);
+                currentMuscle.SetLinePoints(component.Center, component.Center);
+            }
+        }
 
 		/// <summary>
-		/// Instantiates a muscle at the specified point.
-		/// </summary>
-		private void CreateMuscleFromBone(Bone bone) {
-
-			var muscleData = new MuscleData(idCounter++, bone.BoneData.id, bone.BoneData.id, Muscle.Defaults.MaxForce, true, "");
-			currentMuscle = Muscle.CreateFromData(muscleData);
-			currentMuscle.startingBone = bone;
-			currentMuscle.SetLinePoints(bone.Center, bone.Center);
-		}
+        /// Instantiates a muscle at the specified point, connected to a body component.
+        /// </summary>
+        private void CreateMuscleFromComponent(BodyComponent component) {
+            MuscleData muscleData;
+            if (component is Joint) {
+                muscleData = new MuscleData(idCounter++, component.GetId(), component.GetId(), Muscle.Defaults.MaxForce, true, "", true);
+            } else if (component is Bone) {
+                muscleData = new MuscleData(idCounter++, component.GetId(), component.GetId(), Muscle.Defaults.MaxForce, true, "");
+            } else {
+                return; // Should not happen
+            }
+            
+            currentMuscle = Muscle.CreateFromData(muscleData);
+            currentMuscle.startingBodyComponent = component;
+            currentMuscle.SetLinePoints(component.Center, component.Center);
+        }
 
 		/// <summary>
 		/// Updates the muscle that is currently being placed to end at the 
-		/// specified position
+		/// specified position. Can snap to a hovering Bone or Joint.
 		/// </summary>
-		public void UpdateCurrentMuscleEnd(Vector3 endPoint, Bone hoveringBone) {
+        public void UpdateCurrentMuscleEnd(Vector3 endPoint, BodyComponent hoveringComponent) {
+            if (currentMuscle != null) {
+                var newEndingPoint = endPoint;
 
-			if (currentMuscle != null) {
-				// Check if user is hovering over an ending joint which is not the same as the starting
-				// joint of the currentMuscle
-				var endingPoint = endPoint;
+                // Prioritize snapping to a Joint if available and not the starting component
+                if (hoveringComponent is Joint hoveringJoint && !hoveringJoint.Equals(currentMuscle.startingBodyComponent)) {
+                    newEndingPoint = hoveringJoint.Center;
+                    currentMuscle.endingBodyComponent = hoveringJoint;
+                    var oldData = currentMuscle.MuscleData;
+                    currentMuscle.MuscleData = new MuscleData(oldData.id, oldData.startBoneID, oldData.endBoneID, oldData.strength, oldData.canExpand, oldData.userId, true); // Update to joint-to-joint
+                    currentMuscle.MuscleData = new MuscleData(oldData.id, currentMuscle.startingBodyComponent.GetId(), hoveringJoint.GetId(), oldData.strength, oldData.canExpand, oldData.userId, true);
 
-				if (hoveringBone != null) {
-					
-					if (!hoveringBone.Equals(currentMuscle.startingBone)) {
-						endingPoint = hoveringBone.Center;
-						currentMuscle.endingBone = hoveringBone;	
-						var oldData = currentMuscle.MuscleData;
-						var newData = new MuscleData(
-							oldData.id, oldData.startBoneID, hoveringBone.BoneData.id, 
-							oldData.strength, oldData.canExpand, oldData.userId
-						); 
-						currentMuscle.MuscleData = newData;
-					} else {
-						currentMuscle.endingBone = null;
-					}
-				} else {
-					currentMuscle.endingBone = null;
-				}
+                } else if (hoveringComponent is Bone hoveringBone && !hoveringBone.Equals(currentMuscle.startingBodyComponent)) {
+                    newEndingPoint = hoveringBone.Center;
+                    currentMuscle.endingBodyComponent = hoveringBone;
+                    var oldData = currentMuscle.MuscleData;
+                    currentMuscle.MuscleData = new MuscleData(oldData.id, currentMuscle.startingBodyComponent.GetId(), hoveringBone.GetId(), oldData.strength, oldData.canExpand, oldData.userId);
 
-				currentMuscle.SetLinePoints(currentMuscle.startingBone.Center, endingPoint);
-			}
-		}
+                } else {
+                    currentMuscle.endingBodyComponent = null;
+                }
+
+                currentMuscle.SetLinePoints(currentMuscle.startingBodyComponent.Center, newEndingPoint);
+            }
+        }
 
 		/// <summary>
-		/// Checks to see if the current muscle is valid (attached to two joints) and if so
+		/// Checks to see if the current muscle is valid (attached to two body components) and if so
 		/// adds it to the list of muscles.
 		/// </summary>
 		/// <returns>Returns whether the current muscle was placed</returns>
@@ -299,7 +306,8 @@ namespace Keiwando.Evolution {
 				
 			if (currentMuscle == null) return false;
 
-			if (currentMuscle.endingBone == null) {
+			if (currentMuscle.endingBodyComponent == null ||
+                currentMuscle.endingBodyComponent.Equals(currentMuscle.startingBodyComponent)) {
 				// The connection has no connected ending -> Destroy
 				UnityEngine.Object.Destroy(currentMuscle.gameObject);
 				currentMuscle = null;
@@ -332,31 +340,37 @@ namespace Keiwando.Evolution {
 			currentMuscle = null;
 		}
 
-		private void CreateMuscleFromData(MuscleData data) {
-			// Find the connecting joints
-			var startingBone = FindBoneWithId(data.startBoneID);
-			var endingBone = FindBoneWithId(data.endBoneID);
+        private void CreateMuscleFromData(MuscleData data, bool isAttachedToJoints = false) {
+            BodyComponent startingComponent;
+            BodyComponent endingComponent;
+
+            if (isAttachedToJoints) {
+                startingComponent = FindJointWithId(data.startJointID);
+                endingComponent = FindJointWithId(data.endJointID);
+            } else {
+                startingComponent = FindBoneWithId(data.startBoneID);
+                endingComponent = FindBoneWithId(data.endBoneID);
+            }
 			
-			if (startingBone == null || endingBone == null) {
-				Debug.Log(string.Format("The connecting joints for bone {0} were not found!", data.id));
+			if (startingComponent == null || endingComponent == null) {
+				Debug.Log(string.Format("The connecting components for muscle {0} were not found!", data.id));
 				return;
 			}
-			var muscle = CreateMuscleBetween(startingBone, endingBone, data);
+            var muscle = CreateMuscleBetween(startingComponent, endingComponent, data);
 			muscle.ConnectToJoints();
 			muscle.AddCollider();
 			muscles.Add(muscle);
 		}
 
-		private Muscle CreateMuscleBetween(Bone startingBone, Bone endingBone, MuscleData data) {
+        private Muscle CreateMuscleBetween(BodyComponent startingComponent, BodyComponent endingComponent, MuscleData data) {
+            var muscle = Muscle.CreateFromData(data);
 
-			var muscle = Muscle.CreateFromData(data);
+            muscle.startingBodyComponent = startingComponent;
+            muscle.endingBodyComponent = endingComponent;
 
-			muscle.startingBone = startingBone;
-			muscle.endingBone = endingBone;
-
-			muscle.SetLinePoints(startingBone.Center, endingBone.Center);
-			return muscle;
-		}
+            muscle.SetLinePoints(startingComponent.Center, endingComponent.Center);
+            return muscle;
+        }
 
 		#endregion
 		#region Move
