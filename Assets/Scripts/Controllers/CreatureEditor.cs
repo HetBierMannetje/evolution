@@ -1,3 +1,4 @@
+// Assets/Scripts/Controllers/CreatureEditor.cs
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -242,9 +243,10 @@ public class CreatureEditor: MonoBehaviour,
                 break;
 
             case Tool.Muscle:
-                var bone = selectionManager.GetSingleSelected<Bone>();
-                if (bone != null)
-                    creatureBuilder.TryStartingMuscle(bone); 
+                var selectedBodyComponent = selectionManager.GetSingleSelected<BodyComponent>();
+                if (selectedBodyComponent != null) {
+                    creatureBuilder.TryStartingMuscle(selectedBodyComponent);
+                }
                 break;
 
             case Tool.Move:
@@ -287,8 +289,9 @@ public class CreatureEditor: MonoBehaviour,
                 break;
 
             case Tool.Muscle:
-                var hoveringBone = selectionManager.GetSingleSelected<Bone>();
-                creatureBuilder.UpdateCurrentMuscleEnd(clickWorldPos, hoveringBone); 
+                // Pass either a hovering Joint or Bone
+                var hoveringBodyComponent = selectionManager.GetSingleSelected<BodyComponent>();
+                creatureBuilder.UpdateCurrentMuscleEnd(clickWorldPos, hoveringBodyComponent); 
                 break;
 
             case Tool.Move:
